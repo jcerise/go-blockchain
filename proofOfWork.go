@@ -1,25 +1,25 @@
 package main
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"fmt"
 	"math"
 	"math/big"
-	"bytes"
-	"fmt"
-	"crypto/sha256"
 )
 
-const TARGETBITS = 64
+const TARGETBITS = 24
 
 var maxNonce = math.MaxInt64
 
 type ProofOfWork struct {
-	block *Block
+	block  *Block
 	target *big.Int
 }
 
 func NewProofOfWork(b *Block) *ProofOfWork {
 	target := big.NewInt(1)
-	target.Lsh(target, uint(256 - TARGETBITS))
+	target.Lsh(target, uint(256-TARGETBITS))
 
 	pow := &ProofOfWork{b, target}
 
@@ -56,7 +56,7 @@ func (pow *ProofOfWork) Run() (int, []byte) {
 		if hashInt.Cmp(pow.target) == -1 {
 			break
 		} else {
-			nonce ++
+			nonce++
 		}
 	}
 

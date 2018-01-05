@@ -7,13 +7,12 @@ import (
 	"strconv"
 )
 
-type CLI struct {
-	blockChain *BlockChain
-}
+type CLI struct {}
 
 func (cli *CLI) printUsage() {
 	fmt.Println("Usage:")
-	fmt.Println("  add -data BLOCK_DATA - add a block to the blockchain")
+	fmt.Println("  initialize -address ADDRESS - Create a new blockchain, which will send the reward from the genesis block to ADDRESS")
+	fmt.Println("  balance - address ADDRESS - Check the unspent balance of ADDRESS")
 	fmt.Println("  print - prints all the blocks present in the blockchain in reverse order")
 }
 
@@ -27,14 +26,19 @@ func (cli *CLI) validateArgs() {
 func (cli *CLI) Run() {
 	cli.validateArgs()
 
-	addBlockCmd := flag.NewFlagSet("add", flag.ExitOnError)
+	initializeCmd := flag.NewFlagSet("initialize", flag.ExitOnError)
+	balanceCmd := flag.NewFlagSet("balance", flag.ExitOnError)
 	printChainCmd := flag.NewFlagSet("print", flag.ExitOnError)
 
-	addBlockData := addBlockCmd.String("data", "", "Block data")
+	initializeData := initializeCmd.String("address", "", "Genesis Block reward address")
+	balanceData := balanceCmd.String("address", "", "Address to check balance of.")
+
 
 	switch os.Args[1] {
-	case "add":
-		addBlockCmd.Parse(os.Args[2:])
+	case "initialize":
+		initializeCmd.Parse(os.Args[2:])
+	case "balance":
+		balanceCmd.Parse(os.Args[2:])
 	case "print":
 		printChainCmd.Parse(os.Args[2:])
 	default:
@@ -42,12 +46,20 @@ func (cli *CLI) Run() {
 		os.Exit(1)
 	}
 
-	if addBlockCmd.Parsed() {
-		if *addBlockData == "" {
-			addBlockCmd.Usage()
+	if initializeCmd.Parsed() {
+		if *initializeData == "" {
+			initializeCmd.Usage()
 			os.Exit(1)
 		}
-		cli.addBlock(*addBlockData)
+		cli.createBlockChain(*initializeData)
+	}
+
+	if balanceCmd.Parsed() {
+		if *balanceData == "" {
+			balanceCmd.Usage()
+			os.Exit(1)
+		}
+		cli.getBalance(*balanceData)
 	}
 
 	if printChainCmd.Parsed() {
@@ -55,19 +67,39 @@ func (cli *CLI) Run() {
 	}
 }
 
-func (cli *CLI) addBlock(data string) {
-	cli.blockChain.AddBlock(data)
-	fmt.Println("Success!")
+func (cli *CLI) createBlockChain(address string) {
+	blockChain := NewBlockChain(address)
+
+	blockChain.db.Close()
+
+	fmt.Println("New KublaiCoin blockchain created.")
+}
+
+func (cli *CLI) getBalance(address string) {
+	blockChain := GetBlockchain()
+
+	defer blockChain.db.Close()
+
+	balance := 0
+	UTXOs := blockChain.FindUTXO(address)
+
+	for _, out := range UTXOs {
+		balance += out.Value
+	}
+
+	fmt.Printf("Balance of '%s': %d\n", address, balance)
 }
 
 func (cli *CLI) printChain() {
-	bci := cli.blockChain.Iterator()
+	blockChain := NewBlockChain("")
+	defer blockChain.db.Close()
+
+	bci := blockChain.Iterator()
 
 	for {
 		block := bci.Next()
 
 		fmt.Printf("Prev. hash: %x\n", block.PrevBlockHash)
-		fmt.Printf("Data: %s\n", block.Data)
 		fmt.Printf("Hash: %x\n", block.Hash)
 		fmt.Printf("PoW Nonce: %v\n", block.Nonce)
 		pow := NewProofOfWork(block)

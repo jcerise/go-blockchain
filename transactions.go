@@ -1,11 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"bytes"
-	"encoding/gob"
-	"log"
 	"crypto/sha256"
+	"encoding/gob"
+	"fmt"
+	"log"
 )
 
 const subsidy = 10
@@ -36,7 +36,7 @@ func (tx Transaction) IsCoinbase() bool {
 }
 
 type TXOutput struct {
-	Value int
+	Value        int
 	ScriptPubKey string
 }
 
@@ -45,8 +45,8 @@ func (out *TXOutput) CanBeUnlockedWith(unlockingData string) bool {
 }
 
 type TXInput struct {
-	TXId []byte
-	Vout int
+	TXId      []byte
+	Vout      int
 	ScriptSig string
 }
 

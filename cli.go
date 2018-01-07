@@ -7,11 +7,12 @@ import (
 	"strconv"
 )
 
-type CLI struct {}
+type CLI struct{}
 
 func (cli *CLI) printUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  initialize -address ADDRESS - Create a new blockchain, which will send the reward from the genesis block to ADDRESS")
+	fmt.Println("  send -from FROM -to TO -amount AMOUNT - Send an AMOUNT of Kublaicoin to the FROM address, to the TO address")
 	fmt.Println("  balance - address ADDRESS - Check the unspent balance of ADDRESS")
 	fmt.Println("  print - prints all the blocks present in the blockchain in reverse order")
 }
@@ -27,16 +28,23 @@ func (cli *CLI) Run() {
 	cli.validateArgs()
 
 	initializeCmd := flag.NewFlagSet("initialize", flag.ExitOnError)
+	sendCmd := flag.NewFlagSet("send", flag.ExitOnError)
 	balanceCmd := flag.NewFlagSet("balance", flag.ExitOnError)
 	printChainCmd := flag.NewFlagSet("print", flag.ExitOnError)
 
 	initializeData := initializeCmd.String("address", "", "Genesis Block reward address")
-	balanceData := balanceCmd.String("address", "", "Address to check balance of.")
 
+	sendFrom := sendCmd.String("from", "", "Source wallet address")
+	sendTo := sendCmd.String("to", "", "Destination wallet address")
+	sendAmount := sendCmd.Int("amount", 0, "Amount to send")
+
+	balanceData := balanceCmd.String("address", "", "Address to check balance of.")
 
 	switch os.Args[1] {
 	case "initialize":
 		initializeCmd.Parse(os.Args[2:])
+	case "send":
+		sendCmd.Parse(os.Args[2:])
 	case "balance":
 		balanceCmd.Parse(os.Args[2:])
 	case "print":
@@ -52,6 +60,15 @@ func (cli *CLI) Run() {
 			os.Exit(1)
 		}
 		cli.createBlockChain(*initializeData)
+	}
+
+	if sendCmd.Parsed() {
+		if *sendFrom == "" || *sendTo == "" || *sendAmount <= 0 {
+			sendCmd.Usage()
+			os.Exit(1)
+		}
+
+		cli.send(*sendFrom, *sendTo, *sendAmount)
 	}
 
 	if balanceCmd.Parsed() {
@@ -90,8 +107,17 @@ func (cli *CLI) getBalance(address string) {
 	fmt.Printf("Balance of '%s': %d\n", address, balance)
 }
 
+func (cli *CLI) send(from, to string, amount int) {
+	blockChain := GetBlockchain()
+	defer blockChain.db.Close()
+
+	transaction := NewUTXOTransaction(from, to, amount, blockChain)
+	blockChain.MineBlock([]*Transaction{transaction})
+	fmt.Println("Success!")
+}
+
 func (cli *CLI) printChain() {
-	blockChain := NewBlockChain("")
+	blockChain := GetBlockchain()
 	defer blockChain.db.Close()
 
 	bci := blockChain.Iterator()

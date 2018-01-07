@@ -1,16 +1,16 @@
 package main
 
 import (
-	"github.com/boltdb/bolt"
-	"os"
-	"fmt"
 	"encoding/hex"
+	"fmt"
+	"github.com/boltdb/bolt"
 	"log"
+	"os"
 )
 
 const (
-	dbFile       = "blockchain.db"
-	blocksBucket = "blocks"
+	dbFile              = "blockchain.db"
+	blocksBucket        = "blocks"
 	genesisCoinbaseData = "05/Jan/2018 KublaiCoin is now a thing."
 )
 
@@ -43,6 +43,40 @@ func (i *BlockChainIterator) Next() *Block {
 	i.currentHash = block.PrevBlockHash
 
 	return block
+}
+
+func (blockchain *BlockChain) MineBlock(transactions []*Transaction) {
+	var lastHash []byte
+
+	err := blockchain.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(blocksBucket))
+		lastHash = b.Get([]byte("l"))
+
+		return nil
+	})
+
+	if err != nil {
+		log.Panic(err)
+	}
+
+	newBlock := NewBlock(transactions, lastHash)
+
+	err = blockchain.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(blocksBucket))
+		err := b.Put(newBlock.Hash, newBlock.Serialize())
+		if err != nil {
+			log.Panic(err)
+		}
+
+		err = b.Put([]byte("l"), newBlock.Hash)
+		if err != nil {
+			log.Panic(err)
+		}
+
+		blockchain.tip = newBlock.Hash
+
+		return nil
+	})
 }
 
 func (blockChain *BlockChain) AddBlock(transactions []*Transaction) {
@@ -79,21 +113,21 @@ func (blockChain *BlockChain) FindUnspentTransactions(address string) []Transact
 		for _, transaction := range block.Transactions {
 			transactionId := hex.EncodeToString(transaction.ID)
 
-			Outputs:
-				for outIdx, out := range transaction.Vout {
-					// Check if the output was spent
-					if spentTransactions[transactionId] != nil {
-						for _, spentOut := range spentTransactions[transactionId] {
-							if spentOut == outIdx {
-								continue Outputs
-							}
+		Outputs:
+			for outIdx, out := range transaction.Vout {
+				// Check if the output was spent
+				if spentTransactions[transactionId] != nil {
+					for _, spentOut := range spentTransactions[transactionId] {
+						if spentOut == outIdx {
+							continue Outputs
 						}
 					}
-
-					if out.CanBeUnlockedWith(address) {
-						unspentTransactions = append(unspentTransactions, *transaction)
-					}
 				}
+
+				if out.CanBeUnlockedWith(address) {
+					unspentTransactions = append(unspentTransactions, *transaction)
+				}
+			}
 
 			if transaction.IsCoinbase() == false {
 				for _, in := range transaction.Vin {
@@ -126,6 +160,62 @@ func (bc *BlockChain) FindUTXO(address string) []TXOutput {
 	}
 
 	return UTXOs
+}
+
+func NewUTXOTransaction(from, to string, amount int, blockchain *BlockChain) *Transaction {
+	var inputs []TXInput
+	var outputs []TXOutput
+
+	acc, validOutputs := blockchain.FindSpendableOutputs(from, amount)
+
+	if acc < amount {
+		log.Panic("ERROR: Not enough funds")
+	}
+
+	// Build a list of inputs
+	for txid, outs := range validOutputs {
+		txID, _ := hex.DecodeString(txid)
+
+		for _, out := range outs {
+			input := TXInput{txID, out, from}
+			inputs = append(inputs, input)
+		}
+	}
+
+	// Build a list of outputs
+	outputs = append(outputs, TXOutput{amount, to})
+	if acc > amount {
+		outputs = append(outputs, TXOutput{acc - amount, from}) // a change
+	}
+
+	tx := Transaction{nil, inputs, outputs}
+	tx.SetId()
+
+	return &tx
+}
+
+func (blockchain *BlockChain) FindSpendableOutputs(address string, amount int) (int, map[string][]int) {
+	unspentOutputs := make(map[string][]int)
+	unspentTXs := blockchain.FindUnspentTransactions(address)
+	accumulated := 0
+
+Work:
+	for _, tx := range unspentTXs {
+		txID := hex.EncodeToString(tx.ID)
+
+		for outIdx, out := range tx.Vout {
+			if out.CanBeUnlockedWith(address) && accumulated < amount {
+				accumulated += out.Value
+				unspentOutputs[txID] = append(unspentOutputs[txID], outIdx)
+
+				if accumulated >= amount {
+					break Work
+				}
+			}
+		}
+	}
+
+	return accumulated, unspentOutputs
 }
 
 // NewBlockChain creates a new database, blockchain, and genesis block

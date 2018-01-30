@@ -101,7 +101,7 @@ func (blockChain *BlockChain) AddBlock(transactions []*Transaction) {
 	})
 }
 
-func (blockChain *BlockChain) FindUnspentTransactions(address string) []Transaction {
+func (blockChain *BlockChain) FindUnspentTransactions(pubKeyHash []byte) []Transaction {
 	var unspentTransactions []Transaction
 
 	spentTransactions := make(map[string][]int)
@@ -124,14 +124,14 @@ func (blockChain *BlockChain) FindUnspentTransactions(address string) []Transact
 					}
 				}
 
-				if out.CanBeUnlockedWith(address) {
+				if out.IsLockedWithKey(pubKeyHash) {
 					unspentTransactions = append(unspentTransactions, *transaction)
 				}
 			}
 
 			if transaction.IsCoinbase() == false {
 				for _, in := range transaction.Vin {
-					if in.CanUnlockOutputWith(address) {
+					if in.UsesKey(pubKeyHash) {
 						inTxID := hex.EncodeToString(in.TXId)
 						spentTransactions[inTxID] = append(spentTransactions[inTxID], in.Vout)
 					}
@@ -147,13 +147,13 @@ func (blockChain *BlockChain) FindUnspentTransactions(address string) []Transact
 	return unspentTransactions
 }
 
-func (bc *BlockChain) FindUTXO(address string) []TXOutput {
+func (bc *BlockChain) FindUTXO(pubKeyHash []byte) []TXOutput {
 	var UTXOs []TXOutput
-	unspentTransactions := bc.FindUnspentTransactions(address)
+	unspentTransactions := bc.FindUnspentTransactions(pubKeyHash)
 
 	for _, tx := range unspentTransactions {
 		for _, out := range tx.Vout {
-			if out.CanBeUnlockedWith(address) {
+			if out.IsLockedWithKey(pubKeyHash) {
 				UTXOs = append(UTXOs, out)
 			}
 		}
@@ -166,7 +166,11 @@ func NewUTXOTransaction(from, to string, amount int, blockchain *BlockChain) *Tr
 	var inputs []TXInput
 	var outputs []TXOutput
 
-	acc, validOutputs := blockchain.FindSpendableOutputs(from, amount)
+	wallets := NewWallets()
+	wallet := wallets.GetWallet(from)
+	pubKeyHash := HashPubKey(wallet.PublicKey)
+
+	acc, validOutputs := blockchain.FindSpendableOutputs(pubKeyHash, amount)
 
 	if acc < amount {
 		log.Panic("ERROR: Not enough funds")
@@ -177,15 +181,15 @@ func NewUTXOTransaction(from, to string, amount int, blockchain *BlockChain) *Tr
 		txID, _ := hex.DecodeString(txid)
 
 		for _, out := range outs {
-			input := TXInput{txID, out, from}
+			input := TXInput{txID, out, nil, wallet.PublicKey}
 			inputs = append(inputs, input)
 		}
 	}
 
 	// Build a list of outputs
-	outputs = append(outputs, TXOutput{amount, to})
+	outputs = append(outputs, *NewTXOutput(amount, to))
 	if acc > amount {
-		outputs = append(outputs, TXOutput{acc - amount, from}) // a change
+		outputs = append(outputs, *NewTXOutput(acc - amount, from)) // a change
 	}
 
 	tx := Transaction{nil, inputs, outputs}
@@ -194,9 +198,9 @@ func NewUTXOTransaction(from, to string, amount int, blockchain *BlockChain) *Tr
 	return &tx
 }
 
-func (blockchain *BlockChain) FindSpendableOutputs(address string, amount int) (int, map[string][]int) {
+func (blockchain *BlockChain) FindSpendableOutputs(pubKeyHash []byte, amount int) (int, map[string][]int) {
 	unspentOutputs := make(map[string][]int)
-	unspentTXs := blockchain.FindUnspentTransactions(address)
+	unspentTXs := blockchain.FindUnspentTransactions(pubKeyHash)
 	accumulated := 0
 
 Work:
@@ -204,7 +208,7 @@ Work:
 		txID := hex.EncodeToString(tx.ID)
 
 		for outIdx, out := range tx.Vout {
-			if out.CanBeUnlockedWith(address) && accumulated < amount {
+			if out.IsLockedWithKey(pubKeyHash) && accumulated < amount {
 				accumulated += out.Value
 				unspentOutputs[txID] = append(unspentOutputs[txID], outIdx)
 
@@ -223,7 +227,7 @@ func NewBlockChain(address string) *BlockChain {
 	var tip []byte
 
 	if dbExists() {
-		fmt.Println("Kublacoin blockchain already exists. Aborting...")
+		fmt.Println("Kublaicoin blockchain already exists. Aborting...")
 		os.Exit(1)
 	}
 

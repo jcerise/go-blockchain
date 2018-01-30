@@ -15,6 +15,7 @@ func (cli *CLI) printUsage() {
 	fmt.Println("  send -from FROM -to TO -amount AMOUNT - Send an AMOUNT of Kublaicoin to the FROM address, to the TO address")
 	fmt.Println("  balance - address ADDRESS - Check the unspent balance of ADDRESS")
 	fmt.Println("  print - prints all the blocks present in the blockchain in reverse order")
+	fmt.Println("  createwallet - creates a new wallet (public/private keypair)")
 }
 
 func (cli *CLI) validateArgs() {
@@ -31,6 +32,7 @@ func (cli *CLI) Run() {
 	sendCmd := flag.NewFlagSet("send", flag.ExitOnError)
 	balanceCmd := flag.NewFlagSet("balance", flag.ExitOnError)
 	printChainCmd := flag.NewFlagSet("print", flag.ExitOnError)
+	createWalletCmd := flag.NewFlagSet("createwallet", flag.ExitOnError)
 
 	initializeData := initializeCmd.String("address", "", "Genesis Block reward address")
 
@@ -49,6 +51,8 @@ func (cli *CLI) Run() {
 		balanceCmd.Parse(os.Args[2:])
 	case "print":
 		printChainCmd.Parse(os.Args[2:])
+	case "createwallet":
+		createWalletCmd.Parse(os.Args[2:])
 	default:
 		cli.printUsage()
 		os.Exit(1)
@@ -82,6 +86,10 @@ func (cli *CLI) Run() {
 	if printChainCmd.Parsed() {
 		cli.printChain()
 	}
+
+	if createWalletCmd.Parsed() {
+		cli.createWallet()
+	}
 }
 
 func (cli *CLI) createBlockChain(address string) {
@@ -98,7 +106,9 @@ func (cli *CLI) getBalance(address string) {
 	defer blockChain.db.Close()
 
 	balance := 0
-	UTXOs := blockChain.FindUTXO(address)
+	pubKeyHash := Base58Decode([]byte(address))
+	pubKeyHash = pubKeyHash[1 : len(pubKeyHash)-4]
+	UTXOs := blockChain.FindUTXO(pubKeyHash)
 
 	for _, out := range UTXOs {
 		balance += out.Value
@@ -136,4 +146,12 @@ func (cli *CLI) printChain() {
 			break
 		}
 	}
+}
+
+func (cli *CLI) createWallet() {
+	wallets := NewWallets()
+	address := wallets.CreateWallet()
+	wallets.SaveToFile()
+
+	fmt.Printf("Wallet generated with address %v\n", address)
 }
